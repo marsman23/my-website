@@ -124,6 +124,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .badge.k-building { background: var(--build-soft); color: var(--build); }
 .badge.k-both { background: var(--accent-soft); color: var(--accent); }
 .badge.rev { background: var(--money); color: #fff; font-weight: 600; }
+.badge.val { background: none; color: #f5a524; letter-spacing: -1px; padding: 1px 2px; }
+.orig { margin: -4px 0 0; overflow-wrap: anywhere; }
+.summary { margin: 0; font-size: 14px; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; margin: 0; font-size: 13px; background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
+.facts dt { color: var(--muted); white-space: nowrap; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+details .excerpt { margin-top: 4px; }
+.tip { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px; }
 .star { border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--muted); padding: 0 2px; }
 .star.on { color: #f5a524; }
 .item h3 { font-size: 15.5px; margin: 0; line-height: 1.4; overflow-wrap: anywhere; }

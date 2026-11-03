@@ -7,6 +7,7 @@ const SOURCES = {
   reddit: { label: 'Reddit', short: 'Reddit' },
   v2ex: { label: 'V2EX', short: 'V2EX' },
   producthunt: { label: 'Product Hunt', short: 'PH' },
+  hn_threads: { label: 'HN 讨论帖评论', short: 'HN 讨论' },
   mine: { label: '我的想法', short: '我的' },
 };
 
@@ -69,7 +70,7 @@ const TAG_RULES = [
   ['语音 / 电话', /\b(voice|phone|call|receptionist|speech|tts)\b|语音|电话|客服/i],
 ];
 
-const PRICE_CONTEXT = /(pric\w*|plan|cost\w*|charg\w*|only|just|starts? at|subscription|tier|fee|pay\w*|budget|spend\w*|bill\w*|定价|售价|会员|价格|只要|仅需)\W*\S*\W*$/i;
+const PRICE_CONTEXT = /(pric\w*|plan|cost\w*|charg\w*|only|just|at|@|starts? at|subscription|tier|fee|pay\w*|budget|spend\w*|bill\w*|定价|售价|会员|价格|只要|仅需)\W*\S*\W*$/i;
 
 function toNumber(numStr, unit) {
   let n = parseFloat(String(numStr).replace(/,/g, ''));
@@ -96,6 +97,7 @@ function extractRevenue(text) {
     const strong = /mrr|arr|revenue|sales|profit/.test(kw);
     if (!strong && PRICE_CONTEXT.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
     let v = toNumber(m[1], m[2]);
+    if (!strong && v < 300) continue; // 「$29/month」这类小额多半是定价而不是收入
     if (/arr|y(ea)?r|annually/.test(kw)) v /= 12;
     else if (/revenue|sales|profit/.test(kw)) {
       const after = text.slice(m.index + m[0].length, m.index + m[0].length + 25).toLowerCase();
@@ -147,20 +149,47 @@ function fmtUsd(n) {
   return `$${Math.round(n)}`;
 }
 
+const STRONG_MONEY_RE = /\b(mrr|arr|revenue|profit\w*|paying customers|paid users)\b|月入|年入|收入|营收|流水|盈利/i;
+const FIRST_PERSON_RE = /\b(i|i'm|i've|we|we're|we've|my|our)\b|我们?/i;
+const NEWS_RE = /\b(openai|google|microsoft|meta|nvidia|apple|amazon|anthropic|deepmind|raises|raised|funding|series [abc]|acquires|acquired|lawsuit|sues|layoffs|regulation|announces|unveils|report|ipo|valuation)\b/i;
+
+// 没有 AI 打分时的价值估计（1–5）：有收入数字、第一人称经验、细节多的加分；新闻类减分。
+function heuristicValue(item, blob, rev) {
+  let s = 0;
+  if (rev || STRONG_MONEY_RE.test(blob)) s += 3;
+  else if (MONEY_RE.test(blob)) s += 1;
+  if (FIRST_PERSON_RE.test(blob)) s += 2;
+  if (BUILD_RE.test(blob)) s += 1;
+  if ((item.text || '').length > 300) s += 1;
+  if ((item.hints || []).includes('hn_comment')) s += 1;
+  if ((item.score || 0) >= 50 || (item.comments || 0) >= 30) s += 1;
+  if (NEWS_RE.test(item.title) && !FIRST_PERSON_RE.test(item.title)) s -= 3;
+  return s >= 7 ? 5 : s >= 5 ? 4 : s >= 3 ? 3 : s >= 1 ? 2 : 1;
+}
+
 function enrich(item) {
   if (item._e) return item._e;
+  const ai = item.ai;
   const blob = `${item.title}\n${item.text || ''}`;
+  const aiBlob = ai ? `${ai.title_zh}\n${ai.summary_zh}\n${ai.model}\n${ai.customer}\n${ai.acquisition}` : '';
   const hints = item.hints || [];
-  const rev = extractRevenue(blob);
+  const rev = extractRevenue(blob) || (ai?.revenue ? extractRevenue(ai.revenue) : null);
   const building =
-    BUILD_RE.test(blob) || hints.includes('show_hn') || hints.includes('launch') || hints.some((h) => /分享创造/.test(h)) || item.source === 'producthunt';
-  const money = !!rev || MONEY_RE.test(blob);
-  const kind = money && building ? 'both' : money ? 'money' : building ? 'building' : 'talk';
-  const tags = TAG_RULES.filter(([, re]) => re.test(blob)).map(([t]) => t);
+    BUILD_RE.test(blob) ||
+    hints.includes('show_hn') ||
+    hints.includes('launch') ||
+    hints.some((h) => /分享创造/.test(h)) ||
+    item.source === 'producthunt' ||
+    (item.context || '').toLowerCase().includes('working on');
+  const money = !!rev || !!ai?.revenue || MONEY_RE.test(blob);
+  let kind = money && building ? 'both' : money ? 'money' : building ? 'building' : 'talk';
+  if (ai && !ai.is_case) kind = 'talk';
+  const tags = TAG_RULES.filter(([, re]) => re.test(blob) || (aiBlob && re.test(aiBlob))).map(([t]) => t);
+  const value = ai ? (ai.is_case ? ai.value : Math.min(ai.value, 2)) : heuristicValue(item, blob, rev);
   const ageH = Math.max(0, (Date.now() / 1000 - item.created) / 3600);
   const points = (item.score || 0) + 2 * (item.comments || 0) + (item.source === 'producthunt' ? 20 : 0) + (rev ? 30 : 0) + 1;
   const hot = points / Math.pow(ageH + 4, 0.7);
-  item._e = { rev, kind, tags, hot };
+  item._e = { rev, kind, tags, hot, value, searchBlob: `${blob}\n${aiBlob}\n${item.author}\n${item.context || ''}`.toLowerCase() };
   return item._e;
 }
 
@@ -177,11 +206,11 @@ function addItems(list) {
   }
 }
 
-function stripHtml(s) {
+function stripHtml(s, limit = 700) {
   if (!s) return '';
   const doc = new DOMParser().parseFromString(s.replace(/<(br|p)[^>]*>/gi, '\n'), 'text/html');
   const t = (doc.body.textContent || '').replace(/\n{2,}/g, '\n').trim();
-  return t.length > 700 ? t.slice(0, 700) + '…' : t;
+  return t.length > limit ? t.slice(0, limit) + '…' : t;
 }
 
 async function getJson(url, timeoutMs = 15000) {
@@ -203,6 +232,12 @@ async function loadStaticFeed() {
     feedMeta = data;
     addItems(data.items || []);
     for (const [name, s] of Object.entries(data.sources || {})) {
+      if (name === 'ai') {
+        sourceStatus.ai = s.ok
+          ? { state: 'ok', text: `🤖 AI 已精炼 ${(data.items || []).filter((it) => it.ai).length} 条` }
+          : { state: 'wait', text: '🤖 未开启 AI 精炼', title: s.error };
+        continue;
+      }
       sourceStatus[name] = s.ok
         ? { state: 'ok', text: `${SOURCES[name]?.label || name} · ${s.count} 条（定时抓取）` }
         : { state: 'fail', text: `${SOURCES[name]?.label || name} 定时抓取失败`, title: s.error };
@@ -300,11 +335,66 @@ async function liveReddit() {
   return new Set(list.map((it) => it.id)).size;
 }
 
+// 「大家的副业赚多少钱」「What are you working on」这类讨论帖里，抽取和 AI 相关的一手经验评论
+async function liveHNThreads() {
+  const now = Math.floor(Date.now() / 1000);
+  const search = (query, days, minPoints, byDate) => {
+    const p = new URLSearchParams({
+      query,
+      tags: 'ask_hn',
+      hitsPerPage: '20',
+      numericFilters: `created_at_i>${now - days * 86400},points>=${minPoints}`,
+    });
+    return getJson(`https://hn.algolia.com/api/v1/${byDate ? 'search_by_date' : 'search'}?${p}`).then((d) => d.hits || []);
+  };
+  const [latest, revenue] = await Promise.all([
+    search('What are you working on', 75, 20, true),
+    search('side project revenue', 400, 30, false),
+  ]);
+  revenue.sort((a, b) => (b.num_comments || 0) - (a.num_comments || 0));
+  const threads = [latest[0], revenue[0], revenue[1]].filter(Boolean);
+  if (!threads.length) throw new Error('没有找到讨论帖');
+  const trees = await Promise.allSettled(threads.map((t) => getJson(`https://hn.algolia.com/api/v1/items/${t.objectID}`, 30000)));
+  const list = [];
+  trees.forEach((r, i) => {
+    if (r.status !== 'fulfilled') return;
+    const title = threads[i].title || '';
+    const workingOn = title.toLowerCase().includes('working on');
+    for (const c of r.value.children || []) {
+      if (c.type !== 'comment' || !c.text || !c.author) continue;
+      const text = stripHtml(c.text, 1200);
+      if (text.length < 120 || !AI_RE.test(text)) continue;
+      if (!workingOn && !MONEY_RE.test(text)) continue;
+      const link = `https://news.ycombinator.com/item?id=${c.id}`;
+      const first = text.split('\n')[0];
+      const m = first.match(/^(.{20,}?[.!?。！？])(\s|$)/);
+      let t = m ? m[1] : first;
+      if (t.length > 100) t = t.slice(0, 99) + '…';
+      list.push({
+        id: `hnc-${c.id}`,
+        source: 'hn',
+        title: t,
+        url: link,
+        discuss_url: link,
+        author: c.author,
+        score: 0,
+        comments: (c.children || []).length,
+        created: c.created_at_i || threads[i].created_at_i,
+        text,
+        context: title,
+        hints: ['hn_comment'],
+      });
+    }
+  });
+  addItems(list);
+  return new Set(list.map((it) => it.id)).size;
+}
+
 async function liveRefresh() {
   const btn = $('#refresh');
   btn.disabled = true;
   btn.textContent = '⟳ 刷新中…';
-  const jobs = { hn: liveHN, reddit: liveReddit };
+  const jobs = { hn: liveHN, hn_threads: liveHNThreads, reddit: liveReddit };
   for (const name of Object.keys(jobs)) sourceStatus[`live-${name}`] = { state: 'wait', text: `${SOURCES[name].label} 实时抓取中…` };
   renderStatus();
   await Promise.all(
@@ -328,7 +418,7 @@ async function liveRefresh() {
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-const filters = { q: '', kind: 'all', source: 'all', range: 30, sort: 'hot', revOnly: false, tag: null };
+const filters = { q: '', kind: 'all', source: 'all', range: 3650, sort: 'value', revOnly: false, picked: true, tag: null };
 let page = 1;
 
 function timeAgo(ts) {
@@ -351,13 +441,15 @@ function baseFiltered() {
     if (filters.kind === 'money' && !(e.kind === 'money' || e.kind === 'both')) return false;
     if (filters.kind === 'building' && !(e.kind === 'building' || e.kind === 'both')) return false;
     if (filters.revOnly && !e.rev) return false;
-    if (q && !`${it.title}\n${it.text || ''}\n${it.author}`.toLowerCase().includes(q)) return false;
+    if (filters.picked && e.value < 3) return false;
+    if (q && !e.searchBlob.includes(q)) return false;
     return true;
   });
 }
 
 function sorted(list) {
   const by = {
+    value: (a, b) => enrich(b).value - enrich(a).value || enrich(b).hot - enrich(a).hot,
     hot: (a, b) => enrich(b).hot - enrich(a).hot,
     new: (a, b) => b.created - a.created,
     revenue: (a, b) => (enrich(b).rev?.monthlyUsd || 0) - (enrich(a).rev?.monthlyUsd || 0) || enrich(b).hot - enrich(a).hot,
@@ -370,7 +462,7 @@ function renderStats(all) {
   const building = all.filter((it) => ['building', 'both'].includes(enrich(it).kind)).length;
   const rev = all.filter((it) => enrich(it).rev).length;
   const stats = [
-    [all.length, '当前范围内的情报'],
+    [all.length, filters.picked ? '精选情报（≥3★）' : '当前范围内的情报'],
     [money, '💰 赚钱思路 / 经验'],
     [building, '🛠 正在做 / 新上线'],
     [rev, '带收入数字的帖子'],
@@ -400,6 +492,17 @@ function renderStatus() {
       return c;
     }),
   );
+  const tip = $('#setup-tip');
+  const actions = 'https://github.com/marsman23/my-website/actions/workflows/update-feed.yml';
+  if (!feedMeta?.generated_at) {
+    tip.innerHTML = `⚠️ 定时抓取还没运行过，现在只显示浏览器实时拉到的 Hacker News 内容。去 <a target="_blank" rel="noopener">Actions</a> 手动运行一次「更新 AI 赚钱情报」，就会有讨论帖评论、Reddit、V2EX、Product Hunt 的内容。`;
+    tip.querySelector('a').href = actions;
+    tip.classList.remove('hidden');
+  } else if (!feedMeta.sources?.ai?.ok) {
+    tip.innerHTML = `💡 在仓库 Settings → Secrets and variables → Actions 里添加 <code>ANTHROPIC_API_KEY</code>，定时任务就会用 Claude 给每条内容打分、判断是不是真实案例，并提炼成中文（标题、摘要、商业模式、获客、收入、启发）。`;
+    tip.classList.remove('hidden');
+  } else tip.classList.add('hidden');
+
   const upd = $('#updated');
   upd.textContent = feedMeta?.generated_at ? `数据更新于 ${new Date(feedMeta.generated_at).toLocaleString('zh-CN')}` : '';
 }
@@ -431,8 +534,20 @@ function renderTags(list) {
 function buildCard(it, { inBoard = false } = {}) {
   const node = $('#card-tpl').content.firstElementChild.cloneNode(true);
   const e = it.source === 'mine' ? { rev: extractRevenue(`${it.title}\n${it.text || ''}`), kind: 'talk', tags: [] } : enrich(it);
+  const ai = it.ai;
   const src = $('.src', node);
-  src.textContent = it.source === 'reddit' && it.sub ? `r/${it.sub}` : SOURCES[it.source]?.short || it.source;
+  src.textContent =
+    it.source === 'reddit' && it.sub
+      ? `r/${it.sub}`
+      : (it.hints || []).includes('hn_comment')
+        ? SOURCES.hn_threads.short
+        : SOURCES[it.source]?.short || it.source;
+  if (e.value) {
+    const v = $('.val', node);
+    v.classList.remove('hidden');
+    v.textContent = '★'.repeat(e.value) + '☆'.repeat(5 - e.value);
+    v.title = ai ? `AI 评估的参考价值：${e.value}/5` : `按规则估计的参考价值：${e.value}/5（配置 AI 精炼后会更准）`;
+  }
   const kind = $('.kind', node);
   if (it.source === 'mine') kind.remove();
   else {
@@ -446,13 +561,45 @@ function buildCard(it, { inBoard = false } = {}) {
     r.title = `从原文识别：「${e.rev.raw}」（自动识别，未核实）`;
   }
   const a = $('.title', node);
-  a.textContent = it.title;
+  a.textContent = ai?.title_zh || it.title;
   if (it.url) a.href = it.url;
   else a.removeAttribute('href');
+  const orig = $('.orig', node);
+  if (ai?.title_zh && it.source !== 'mine') orig.textContent = it.title;
+  else orig.remove();
+
+  const facts = $('.facts', node);
+  if (ai) {
+    const summary = document.createElement('p');
+    summary.className = 'summary';
+    summary.textContent = ai.summary_zh;
+    facts.before(summary);
+    for (const [k, v] of [['模式', ai.model], ['用户', ai.customer], ['获客', ai.acquisition], ['收入', ai.revenue], ['启发', ai.takeaway]]) {
+      if (!v) continue;
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      facts.append(dt, dd);
+    }
+  }
+  if (!facts.children.length) facts.remove();
+
   const ex = $('.excerpt', node);
-  ex.textContent = it.text || '';
   if (!it.text) ex.remove();
-  else ex.onclick = () => ex.classList.toggle('open');
+  else if (ai) {
+    // 有 AI 摘要时，原文默认折叠
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.textContent = '原文';
+    ex.textContent = it.text;
+    ex.classList.add('open');
+    ex.replaceWith(det);
+    det.append(sum, ex);
+  } else {
+    ex.textContent = it.text;
+    ex.onclick = () => ex.classList.toggle('open');
+  }
   const tags = $('.tags', node);
   for (const t of e.tags) {
     const s = document.createElement('span');
@@ -465,6 +612,7 @@ function buildCard(it, { inBoard = false } = {}) {
   if (it.score) parts.push(`▲ ${it.score}`);
   if (it.comments) parts.push(`💬 ${it.comments}`);
   if (it.created) parts.push(timeAgo(it.created));
+  if (it.context) parts.push(`来自讨论帖「${it.context}」`);
   meta.textContent = parts.join('  ·  ');
 
   const discuss = $('.discuss', node);
@@ -724,6 +872,7 @@ function bind() {
   $('#range').onchange = (e) => ((filters.range = Number(e.target.value)), renderFeed(true));
   $('#sort').onchange = (e) => ((filters.sort = e.target.value), renderFeed(true));
   $('#rev-only').onchange = (e) => ((filters.revOnly = e.target.checked), renderFeed(true));
+  $('#picked').onchange = (e) => ((filters.picked = e.target.checked), renderFeed(true));
   $('#more').onclick = () => {
     page += 1;
     renderFeed();

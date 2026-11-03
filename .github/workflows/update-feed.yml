@@ -15,7 +15,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -23,7 +23,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: 安装依赖
+        run: pip install anthropic==2.3.0
+
       - name: 抓取数据
+        env:
+          # 以下都是可选的，在 Settings → Secrets and variables → Actions 里配置
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # 配置后用 Claude 打分 + 中文提炼
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }} # 配置后走 Reddit 官方 API，更稳定
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          AI_MODEL: ${{ vars.AI_MODEL }} # 可选：换模型，默认 claude-opus-5-5
+          AI_MAX_ITEMS: ${{ vars.AI_MAX_ITEMS }} # 可选：每次最多精炼多少条，默认 40
         run: python scripts/fetch_feed.py
 
       - name: 提交更新
@@ -36,4 +46,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add workbench/data/feed.json
           git commit -m "chore: 更新 AI 赚钱情报数据"
-          git push
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
