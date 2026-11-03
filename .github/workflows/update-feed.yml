@@ -1,0 +1,39 @@
+name: 更新 AI 赚钱情报
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # 每 6 小时抓一次（UTC）
+  workflow_dispatch: {} # 也可以在 Actions 页面手动运行
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-feed
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 抓取数据
+        run: python scripts/fetch_feed.py
+
+      - name: 提交更新
+        run: |
+          if git diff --quiet -- workbench/data/feed.json; then
+            echo "没有新数据"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add workbench/data/feed.json
+          git commit -m "chore: 更新 AI 赚钱情报数据"
+          git push
