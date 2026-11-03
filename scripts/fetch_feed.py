@@ -28,6 +28,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -153,7 +154,12 @@ def http_get(url: str, *, accept: str = "application/json", headers: dict | None
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": accept, **(headers or {})})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return resp.read()
-        except Exception as exc:  # noqa: BLE001 - 任何网络错误都重试
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if 400 <= exc.code < 500 and exc.code != 429:
+                break  # 403/404 之类重试也没用
+            time.sleep(2 * (attempt + 1))
+        except Exception as exc:  # noqa: BLE001 - 其他网络错误重试
             last = exc
             time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"GET {url} failed: {last}")
