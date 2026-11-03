@@ -116,8 +116,8 @@ HN_THREADS = [
 ]
 # 只要标题和赚钱 / 副业 / 在做什么有关的讨论帖，避免「你想学什么技能」这类跑题帖子
 THREAD_TITLE_RE = re.compile(
-    r"revenue|\$\s?\d|money|income|profit|side[- ]?(project|hustle|business)|working on|mrr|\barr\b|earn|"
-    r"making|business|bootstrap|indie|paying customers",
+    r"revenue|\$\s?\d|money|income|profit|side[- ]?(project|hustle|business)|working on|building|mrr|\barr\b|earn|"
+    r"making a living|(solo|small|online|web|own|one[- ]person|internet) business|business ideas?|bootstrap|indie|paying customers",
     re.IGNORECASE,
 )
 THREAD_MAX_COMMENTS = 80
@@ -623,6 +623,9 @@ def main() -> int:
     now = time.time()
 
     def keep(it: dict) -> bool:
+        # 清理早期版本从跑题讨论帖里抓到的评论
+        if "hn_comment" in (it.get("hints") or []) and not THREAD_TITLE_RE.search(it.get("context") or ""):
+            return False
         long_lived = "hn_comment" in (it.get("hints") or []) or (it.get("ai") or {}).get("value", 0) >= 4
         days = RETAIN_DAYS_CASES if long_lived else RETAIN_DAYS
         return it.get("created", 0) >= now - days * 86400
