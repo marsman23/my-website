@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""抓取「别人用 AI 赚钱的思路 / 正在做的事」并写入 workbench/data/feed.json。
+"""抓取「别人怎么赚钱 / 最新的商业机会 / 正在做的事」并写入 workbench/data/feed.json。
 
 在 GitHub Actions 里定时运行。每次运行会与已有的 feed.json 合并（按 id 去重），
 慢慢积累成一个情报库。
 
 数据源（任何一个失败都不会影响其他）：
   - HN 讨论帖评论（价值最高）：「你的副业赚多少钱」「What are you working on」这类
-    Ask HN 讨论帖里，大量开发者亲自讲自己在做什么、赚了多少。逐条抽取其中和 AI 相关的评论。
-  - Hacker News 帖子：Show HN 上的 AI 产品、讨论 MRR / 收入的帖子
-  - Reddit：r/SideProject、r/indiehackers、r/EntrepreneurRideAlong 等
+    Ask HN 讨论帖里，大量创业者亲自讲自己在做什么、赚了多少。逐条抽取其中的一手案例。
+  - Hacker News 帖子：热门 Show HN、讨论 MRR / 收入 / 出售项目 / 商业点子的帖子
+  - Reddit：r/EntrepreneurRideAlong、r/smallbusiness、r/SideProject、r/Business_Ideas 等
     （配置了 REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET 时走官方 API，更稳定）
   - V2EX：分享创造 / 奇思妙想 / 创业 节点
-  - Product Hunt：RSS 里和 AI 相关的新产品
+  - Product Hunt：每天新上线的产品
+
+不限于 AI：AI 只是其中一个标签。
 
 可选：配置了 ANTHROPIC_API_KEY 时，用 Claude 给新内容打分（1–5）、判断是不是
 真实案例，并提炼中文标题、摘要、商业模式、获客、收入、启发。每次运行最多处理
@@ -36,7 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "workbench" / "data" / "feed.json"
 
 RETAIN_DAYS = 45  # 普通帖子保留天数
-RETAIN_DAYS_CASES = 400  # 讨论帖评论、AI 判定为高价值的内容保留更久
+RETAIN_DAYS_CASES = 800  # 讨论帖评论、AI 判定为高价值的内容保留更久
 MAX_ITEMS = 2000
 TEXT_LIMIT = 700
 COMMENT_TEXT_LIMIT = 1200
@@ -76,45 +78,64 @@ NEWS_RE = re.compile(
     re.IGNORECASE,
 )
 
-# ---- HN 帖子：(查询词, tags, 最近几天, 最少分数) ----
+# ---- HN 帖子：(查询词, tags, 最近几天, 最少分数)；查询词为空 = 该分类下的热门 ----
 HN_QUERIES = [
+    ("", "show_hn", 21, 60),  # 最近的热门 Show HN：大家正在做什么
     ("AI", "show_hn", 30, 15),
-    ("LLM", "show_hn", 30, 10),
-    ("agent", "show_hn", 30, 10),
     ("MRR", "story", 120, 3),
-    ("AI revenue", "story", 90, 5),
-    ("AI side project", "story", 120, 3),
-    ("AI startup profitable", "story", 180, 5),
-    ("paying customers AI", "story", 120, 3),
-    ("making money AI", "ask_hn", 365, 3),
-    ("AI business", "ask_hn", 180, 3),
-    ("bootstrapped AI", "story", 180, 5),
+    ("side project", "story", 120, 5),
+    ("bootstrapped", "story", 180, 5),
+    ("paying customers", "story", 180, 5),
+    ("profitable", "story", 120, 10),
+    ("sold my", "story", 365, 10),
+    ("acquired my", "story", 365, 10),
+    ("business idea", "story", 365, 5),
+    ("indie hacker", "story", 180, 5),
+    ("small business", "story", 90, 20),
+    ("niche", "story", 180, 20),
+    ("making money", "ask_hn", 365, 5),
+    ("business idea", "ask_hn", 365, 5),
+    ("side income", "ask_hn", 365, 5),
+    ("startup idea", "ask_hn", 365, 5),
 ]
 
 # ---- HN 讨论帖：(查询词, 最近几天, 最少分数, 取前几个帖子, 是否按时间取最新) ----
 HN_THREADS = [
-    ("What are you working on", 75, 20, 2, True),  # 每月一期的「你在做什么」
-    ("side project revenue", 400, 30, 3, False),
-    ("side project make money", 400, 30, 2, False),
-    ("profitable side project", 400, 30, 2, False),
-    ("making money with AI", 400, 20, 2, False),
-    ("bootstrapped profitable", 400, 30, 2, False),
-    ("solo founder revenue", 400, 30, 1, False),
+    ("What are you working on", 75, 20, 1, True),  # 每月一期的「你在做什么」
+    ("side projects revenue", 730, 30, 3, False),
+    ("generate revenue", 730, 50, 2, False),
+    ("side project income", 730, 30, 2, False),
+    ("MRR", 730, 30, 2, False),
+    ("making money online", 730, 30, 2, False),
+    ("passive income", 730, 30, 2, False),
+    ("profitable solo", 730, 30, 2, False),
+    ("make money with AI", 730, 10, 2, False),
+    ("side hustle", 730, 20, 2, False),
+    ("business ideas", 730, 30, 2, False),
 ]
+# 只要标题和赚钱 / 副业 / 在做什么有关的讨论帖，避免「你想学什么技能」这类跑题帖子
+THREAD_TITLE_RE = re.compile(
+    r"revenue|\$\s?\d|money|income|profit|side[- ]?(project|hustle|business)|working on|mrr|\barr\b|earn|"
+    r"making|business|bootstrap|indie|paying customers",
+    re.IGNORECASE,
+)
 THREAD_MAX_COMMENTS = 80
 
 REDDIT_SUBS = [
+    "EntrepreneurRideAlong",
     "SideProject",
     "indiehackers",
-    "EntrepreneurRideAlong",
+    "smallbusiness",
+    "Entrepreneur",
+    "sidehustle",
+    "Business_Ideas",
     "SaaS",
     "microsaas",
-    "sidehustle",
-    "Entrepreneur",
     "startups",
+    "passive_income",
+    "ecommerce",
     "AI_Agents",
 ]
-REDDIT_QUERY = 'AI OR GPT OR LLM OR agent OR "ChatGPT" OR "Claude"'
 
 V2EX_NODES = ["create", "ideas", "startup"]
 
@@ -174,11 +195,11 @@ def priority(it: dict) -> float:
     blob = f"{it.get('title', '')}\n{it.get('text', '')}"
     s = 0.0
     if STRONG_MONEY_RE.search(blob):
-        s += 3
+        s += 4
     elif MONEY_RE.search(blob):
         s += 1
     if FIRST_PERSON_RE.search(blob):
-        s += 2
+        s += 1
     if BUILD_RE.search(blob):
         s += 1
     if len(it.get("text") or "") > 300:
@@ -217,8 +238,6 @@ def collect_hn() -> list[dict]:
             if not oid or not title:
                 continue
             text = clean_text(hit.get("story_text"))
-            if not is_ai(title, text):
-                continue
             hn_tags = hit.get("_tags") or []
             discuss = f"https://news.ycombinator.com/item?id={oid}"
             items[f"hn-{oid}"] = {
@@ -242,7 +261,11 @@ def collect_hn_threads() -> list[dict]:
     """从「大家的副业赚多少钱」「你在做什么」这类讨论帖里，逐条抽取和 AI 相关的一手经验评论。"""
     threads: dict[str, dict] = {}
     for query, days, min_points, take, by_date in HN_THREADS:
-        hits = [h for h in hn_search(query, "ask_hn", days, min_points, by_date=by_date, hits=20) if h.get("objectID")]
+        hits = [
+            h
+            for h in hn_search(query, "ask_hn", days, min_points, by_date=by_date, hits=20)
+            if h.get("objectID") and THREAD_TITLE_RE.search(h.get("title") or "")
+        ]
         if not by_date:
             hits.sort(key=lambda h: h.get("num_comments") or 0, reverse=True)
         for h in hits[:take]:
@@ -263,9 +286,14 @@ def collect_hn_threads() -> list[dict]:
             if c.get("type") != "comment" or not c.get("text") or not c.get("author"):
                 continue
             text = clean_text(c["text"], COMMENT_TEXT_LIMIT)
-            if len(text) < 120 or not is_ai(text):
+            if len(text) < 120:
                 continue
-            if not working_on and not MONEY_RE.search(text):
+            if working_on:
+                # 「你在做什么」帖：只要像是在做产品 / 生意的（有链接、有用户或在讲自己的项目）
+                if not (BUILD_RE.search(text) or MONEY_RE.search(text) or "http" in text):
+                    continue
+            # 赚钱类讨论帖：只要谈到收入、客户、利润
+            elif not MONEY_RE.search(text):
                 continue
             replies = len(c.get("children") or [])
             picked.append((replies, c, text))
@@ -321,8 +349,8 @@ def collect_reddit() -> list[dict]:
 
     items: dict[str, dict] = {}
     for sub in REDDIT_SUBS:
-        params = {"q": REDDIT_QUERY, "restrict_sr": "1", "sort": "top", "t": "month", "limit": "50", "raw_json": "1"}
-        url = f"{base}/r/{sub}/search{suffix}?" + urllib.parse.urlencode(params)
+        params = {"t": "week", "limit": "50", "raw_json": "1"}
+        url = f"{base}/r/{sub}/top{suffix}?" + urllib.parse.urlencode(params)
         try:
             data = get_json(url, headers=headers)
         except Exception as exc:  # noqa: BLE001
@@ -334,7 +362,7 @@ def collect_reddit() -> list[dict]:
                 continue
             title = d.get("title") or ""
             text = clean_text(d.get("selftext"))
-            if not is_ai(title, text):
+            if (d.get("score") or 0) < 5:
                 continue
             pid = d.get("id")
             discuss = "https://www.reddit.com" + (d.get("permalink") or "")
@@ -374,8 +402,6 @@ def collect_v2ex() -> list[dict]:
         for t in data:
             title = t.get("title") or ""
             text = clean_text(t.get("content_rendered") or t.get("content"))
-            if not is_ai(title, text):
-                continue
             tid = t.get("id")
             link = t.get("url") or f"https://www.v2ex.com/t/{tid}"
             items[f"v2-{tid}"] = {
@@ -393,7 +419,7 @@ def collect_v2ex() -> list[dict]:
             }
         time.sleep(1)
     if not items:
-        raise RuntimeError("V2EX 没有返回 AI 相关数据")
+        raise RuntimeError("V2EX 没有返回数据")
     return list(items.values())
 
 
@@ -405,8 +431,6 @@ def collect_producthunt() -> list[dict]:
     for e in root.findall("a:entry", ns):
         title = (e.findtext("a:title", default="", namespaces=ns) or "").strip()
         content = clean_text(e.findtext("a:content", default="", namespaces=ns))
-        if not is_ai(title, content):
-            continue
         # 注意：Element 没有子节点时布尔值为 False，不能用 `or` 连接
         link_el = e.find("a:link[@rel='alternate']", ns)
         if link_el is None:
@@ -450,10 +474,10 @@ COLLECTORS = {
 
 # ---------------------------------------------------------------- AI 精炼（可选）
 
-AI_SYSTEM = """你在帮一位想用 AI 做副业或小生意的中文用户筛选情报。用户会给你若干条来自 Hacker News、Reddit、V2EX、Product Hunt 的帖子或评论，每条带有 id。
+AI_SYSTEM = """你在帮一位寻找商业机会、想做副业或小生意的中文用户筛选情报（不限行业，AI 只是其中一类）。用户会给你若干条来自 Hacker News、Reddit、V2EX、Product Hunt 的帖子或评论，每条带有 id。
 
 对每一条，判断它对这位用户的参考价值，并用简体中文提炼要点：
-- 价值高：讲了一个具体的项目或生意，最好有真实数据（收入、用户数、转化率、成本），说清楚了怎么获客、怎么收费，普通人有机会借鉴。
+- 价值高：讲了一个具体的项目、生意或市场机会，最好有真实数据（收入、用户数、转化率、成本），说清楚了怎么获客、怎么收费，普通人有机会借鉴。
 - 价值低：新闻、融资、大公司动态、泛泛的观点、纯技术讨论、没有任何商业信息的产品发布。
 
 只依据原文，不要编造；原文没提到的字段留空字符串。每条输入都要有一条对应的输出，id 原样返回。"""
@@ -473,7 +497,7 @@ AI_SCHEMA = {
                     },
                     "value": {
                         "type": "integer",
-                        "description": "对想用 AI 赚钱的普通人的参考价值，1（几乎没用）到 5（非常值得细看）",
+                        "description": "对寻找商业机会的普通人的参考价值，1（几乎没用）到 5（非常值得细看）",
                     },
                     "title_zh": {"type": "string", "description": "中文标题，30 字以内，点出项目和关键数字"},
                     "summary_zh": {"type": "string", "description": "一到两句中文摘要"},

@@ -1,4 +1,4 @@
-name: 更新 AI 赚钱情报
+name: 更新搞钱情报
 
 on:
   schedule:
@@ -45,6 +45,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add workbench/data/feed.json
-          git commit -m "chore: 更新 AI 赚钱情报数据"
+          git commit -m "chore: 更新搞钱情报数据"
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"
