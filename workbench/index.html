@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI 搞钱工作台</title>
-  <meta name="description" content="个人工作台：汇总别人用 AI 赚钱的商业思路和正在做的项目，收藏、记笔记、跟踪自己的想法。" />
+  <title>搞钱情报工作台</title>
+  <meta name="description" content="个人工作台：汇总最新的商业机会、别人怎么赚钱、正在做的项目，收藏、记笔记、跟踪自己的想法。" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -13,8 +13,8 @@
     <div class="brand">
       <span class="logo">🧭</span>
       <div>
-        <h1>AI 搞钱工作台</h1>
-        <p class="sub">别人用 AI 赚钱的思路 · 正在做的事 · 我的灵感库</p>
+        <h1>搞钱情报工作台</h1>
+        <p class="sub">最新商业机会 · 别人怎么赚钱 · 正在做的事 · 我的灵感库</p>
       </div>
     </div>
     <div class="top-actions">
@@ -37,7 +37,7 @@
       <div id="source-status" class="source-status"></div>
 
       <div class="filters">
-        <input id="q" type="search" placeholder="搜索标题 / 内容，例如：agent、SEO、月入、chrome extension" />
+        <input id="q" type="search" placeholder="搜索标题 / 内容，例如：SEO、月入、Shopify、local business、AI" />
         <div class="row">
           <div class="seg" id="kind-seg">
             <button data-kind="all" class="active">全部</button>
@@ -53,20 +53,23 @@
           </select>
           <select id="range">
             <option value="7">近 7 天</option>
-            <option value="30" selected>近 30 天</option>
+            <option value="30">近 30 天</option>
             <option value="90">近 90 天</option>
-            <option value="3650">全部时间</option>
+            <option value="3650" selected>全部时间</option>
           </select>
           <select id="sort">
+            <option value="value" selected>按价值</option>
             <option value="hot">按热度</option>
             <option value="new">按时间</option>
             <option value="revenue">按收入信号</option>
           </select>
+          <label class="check" title="只显示参考价值 ≥ 3 星的内容"><input type="checkbox" id="picked" checked /> 只看精选</label>
           <label class="check"><input type="checkbox" id="rev-only" /> 只看有收入数字的</label>
         </div>
         <div class="tag-row" id="tag-row"></div>
       </div>
 
+      <div id="setup-tip" class="tip hidden"></div>
       <div id="feed" class="grid"></div>
       <div id="feed-empty" class="empty hidden"></div>
       <div class="more-wrap"><button id="more" class="btn hidden">加载更多</button></div>
@@ -103,7 +106,7 @@
 
       <div class="card settings">
         <h2>🔎 实时搜索关键词</h2>
-        <p class="muted">点「实时刷新」时，会用这些关键词在 Hacker News 上额外搜索（每行一个，英文效果更好）。</p>
+        <p class="muted">点「实时刷新」时，会用这些关键词在 Hacker News 上额外搜索（每行一个，英文效果更好）。可以加上你关心的行业，比如 <code>restaurant</code>、<code>Shopify</code>、<code>newsletter</code>。</p>
         <textarea id="keywords" rows="5"></textarea>
         <div class="row"><button id="save-kw" class="btn primary">保存</button><span id="kw-msg" class="muted small"></span></div>
       </div>
@@ -115,8 +118,11 @@
           <li><a href="https://www.indiehackers.com/" target="_blank" rel="noopener">Indie Hackers</a> — 独立开发者公开收入和经验</li>
           <li><a href="https://trustmrr.com/" target="_blank" rel="noopener">TrustMRR</a> — 经过验证的创业项目收入榜</li>
           <li><a href="https://www.starterstory.com/" target="_blank" rel="noopener">Starter Story</a> — 创业项目访谈</li>
-          <li><a href="https://www.producthunt.com/topics/artificial-intelligence" target="_blank" rel="noopener">Product Hunt · AI</a> — 每天新上线的 AI 产品</li>
-          <li><a href="https://www.reddit.com/r/SideProject/" target="_blank" rel="noopener">r/SideProject</a> · <a href="https://www.reddit.com/r/EntrepreneurRideAlong/" target="_blank" rel="noopener">r/EntrepreneurRideAlong</a></li>
+          <li><a href="https://www.producthunt.com/" target="_blank" rel="noopener">Product Hunt</a> — 每天新上线的产品</li>
+          <li><a href="https://acquire.com/" target="_blank" rel="noopener">Acquire.com</a> · <a href="https://flippa.com/" target="_blank" rel="noopener">Flippa</a> — 在售项目，能看到真实收入和利润</li>
+          <li><a href="https://explodingtopics.com/" target="_blank" rel="noopener">Exploding Topics</a> · <a href="https://trends.google.com/" target="_blank" rel="noopener">Google Trends</a> — 正在升温的需求</li>
+          <li><a href="https://www.ycombinator.com/rfs" target="_blank" rel="noopener">YC Requests for Startups</a> — YC 想投的方向</li>
+          <li><a href="https://www.reddit.com/r/EntrepreneurRideAlong/" target="_blank" rel="noopener">r/EntrepreneurRideAlong</a> · <a href="https://www.reddit.com/r/smallbusiness/" target="_blank" rel="noopener">r/smallbusiness</a> · <a href="https://www.reddit.com/r/SideProject/" target="_blank" rel="noopener">r/SideProject</a></li>
           <li><a href="https://www.v2ex.com/go/create" target="_blank" rel="noopener">V2EX · 分享创造</a> — 中文独立开发者的作品</li>
         </ul>
       </div>
@@ -140,10 +146,13 @@
         <span class="badge src"></span>
         <span class="badge kind"></span>
         <span class="badge rev hidden"></span>
+        <span class="badge val hidden"></span>
         <span class="spacer"></span>
         <button class="star" title="收藏到工作台">☆</button>
       </div>
       <h3><a class="title" target="_blank" rel="noopener"></a></h3>
+      <p class="orig muted small"></p>
+      <dl class="facts"></dl>
       <p class="excerpt"></p>
       <div class="tags"></div>
       <div class="meta muted small"></div>
