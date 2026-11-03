@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 搞钱工作台</title>
+  <meta name="description" content="个人工作台：汇总别人用 AI 赚钱的商业思路和正在做的项目，收藏、记笔记、跟踪自己的想法。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🧭</span>
+      <div>
+        <h1>AI 搞钱工作台</h1>
+        <p class="sub">别人用 AI 赚钱的思路 · 正在做的事 · 我的灵感库</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="updated" class="muted small"></span>
+      <button id="refresh" class="btn">⟳ 实时刷新</button>
+      <button id="theme" class="btn icon" title="切换明暗">🌓</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="feed" role="tab">📡 情报流</button>
+    <button class="tab" data-tab="board" role="tab">🗂 我的工作台 <span id="saved-count" class="pill">0</span></button>
+    <button class="tab" data-tab="settings" role="tab">⚙️ 设置</button>
+  </nav>
+
+  <main>
+    <!-- ================= 情报流 ================= -->
+    <section id="tab-feed" class="tab-panel active">
+      <div class="stats" id="stats"></div>
+      <div id="source-status" class="source-status"></div>
+
+      <div class="filters">
+        <input id="q" type="search" placeholder="搜索标题 / 内容，例如：agent、SEO、月入、chrome extension" />
+        <div class="row">
+          <div class="seg" id="kind-seg">
+            <button data-kind="all" class="active">全部</button>
+            <button data-kind="money">💰 赚钱思路</button>
+            <button data-kind="building">🛠 正在做</button>
+          </div>
+          <select id="source">
+            <option value="all">全部来源</option>
+            <option value="hn">Hacker News</option>
+            <option value="reddit">Reddit</option>
+            <option value="v2ex">V2EX</option>
+            <option value="producthunt">Product Hunt</option>
+          </select>
+          <select id="range">
+            <option value="7">近 7 天</option>
+            <option value="30" selected>近 30 天</option>
+            <option value="90">近 90 天</option>
+            <option value="3650">全部时间</option>
+          </select>
+          <select id="sort">
+            <option value="hot">按热度</option>
+            <option value="new">按时间</option>
+            <option value="revenue">按收入信号</option>
+          </select>
+          <label class="check"><input type="checkbox" id="rev-only" /> 只看有收入数字的</label>
+        </div>
+        <div class="tag-row" id="tag-row"></div>
+      </div>
+
+      <div id="feed" class="grid"></div>
+      <div id="feed-empty" class="empty hidden"></div>
+      <div class="more-wrap"><button id="more" class="btn hidden">加载更多</button></div>
+    </section>
+
+    <!-- ================= 我的工作台 ================= -->
+    <section id="tab-board" class="tab-panel">
+      <div class="board-head">
+        <p class="muted">收藏的情报和自己的想法都在这里。用下拉框推进状态，随手写笔记。数据只保存在当前浏览器里，记得定期导出备份。</p>
+        <div class="board-actions">
+          <button id="add-idea" class="btn primary">＋ 记一个我的想法</button>
+          <button id="export" class="btn">⇩ 导出</button>
+          <label class="btn">⇧ 导入<input id="import" type="file" accept="application/json" hidden /></label>
+        </div>
+      </div>
+      <form id="idea-form" class="idea-form hidden">
+        <input name="title" placeholder="想法标题，例如：给牙医诊所做 AI 电话预约" required />
+        <input name="url" placeholder="参考链接（可选）" />
+        <textarea name="note" rows="3" placeholder="目标用户 / 怎么获客 / 怎么收费 / 第一步做什么"></textarea>
+        <div class="row"><button class="btn primary" type="submit">保存</button><button class="btn" type="button" id="idea-cancel">取消</button></div>
+      </form>
+      <div id="board" class="board"></div>
+    </section>
+
+    <!-- ================= 设置 ================= -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="card settings">
+        <h2>🤖 AI 拆解（可选）</h2>
+        <p class="muted">填入你自己的 Anthropic API Key 后，每条情报上会出现「AI 拆解」按钮，由 Claude 帮你拆出：商业模式、目标用户、获客方式、变现方式、可复制性和你可以怎么做。
+          Key 只保存在这台设备的浏览器里，直接从浏览器发给 Anthropic；不要在公用电脑上填写。</p>
+        <label>API Key<input id="api-key" type="password" placeholder="sk-ant-..." autocomplete="off" /></label>
+        <div class="row"><button id="save-key" class="btn primary">保存</button><button id="clear-key" class="btn">清除</button><span id="key-msg" class="muted small"></span></div>
+      </div>
+
+      <div class="card settings">
+        <h2>🔎 实时搜索关键词</h2>
+        <p class="muted">点「实时刷新」时，会用这些关键词在 Hacker News 上额外搜索（每行一个，英文效果更好）。</p>
+        <textarea id="keywords" rows="5"></textarea>
+        <div class="row"><button id="save-kw" class="btn primary">保存</button><span id="kw-msg" class="muted small"></span></div>
+      </div>
+
+      <div class="card settings">
+        <h2>📚 值得常逛的地方</h2>
+        <ul class="links">
+          <li><a href="https://news.ycombinator.com/show" target="_blank" rel="noopener">Show HN</a> — 开发者发布自己做的产品</li>
+          <li><a href="https://www.indiehackers.com/" target="_blank" rel="noopener">Indie Hackers</a> — 独立开发者公开收入和经验</li>
+          <li><a href="https://trustmrr.com/" target="_blank" rel="noopener">TrustMRR</a> — 经过验证的创业项目收入榜</li>
+          <li><a href="https://www.starterstory.com/" target="_blank" rel="noopener">Starter Story</a> — 创业项目访谈</li>
+          <li><a href="https://www.producthunt.com/topics/artificial-intelligence" target="_blank" rel="noopener">Product Hunt · AI</a> — 每天新上线的 AI 产品</li>
+          <li><a href="https://www.reddit.com/r/SideProject/" target="_blank" rel="noopener">r/SideProject</a> · <a href="https://www.reddit.com/r/EntrepreneurRideAlong/" target="_blank" rel="noopener">r/EntrepreneurRideAlong</a></li>
+          <li><a href="https://www.v2ex.com/go/create" target="_blank" rel="noopener">V2EX · 分享创造</a> — 中文独立开发者的作品</li>
+        </ul>
+      </div>
+
+      <div class="card settings">
+        <h2>🧹 数据</h2>
+        <p class="muted">清除这台设备上的收藏、笔记、AI 拆解结果和设置。建议先导出备份。</p>
+        <button id="wipe" class="btn danger">清除本地数据</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot muted small">
+    数据来自 Hacker News、Reddit、V2EX、Product Hunt 的公开内容，每 6 小时自动更新；收入数字是从帖子文字中自动识别的「信号」，未经核实。
+    <a href="../">← 返回主页</a>
+  </footer>
+
+  <template id="card-tpl">
+    <article class="card item">
+      <div class="item-top">
+        <span class="badge src"></span>
+        <span class="badge kind"></span>
+        <span class="badge rev hidden"></span>
+        <span class="spacer"></span>
+        <button class="star" title="收藏到工作台">☆</button>
+      </div>
+      <h3><a class="title" target="_blank" rel="noopener"></a></h3>
+      <p class="excerpt"></p>
+      <div class="tags"></div>
+      <div class="meta muted small"></div>
+      <div class="actions">
+        <a class="btn sm discuss" target="_blank" rel="noopener">💬 原帖讨论</a>
+        <button class="btn sm analyze hidden">🤖 AI 拆解</button>
+      </div>
+      <div class="analysis hidden"></div>
+    </article>
+  </template>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
